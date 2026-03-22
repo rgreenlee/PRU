@@ -1,0 +1,20 @@
+# General
+*.o
+*.obj
+*.exe
+*.out
+*.elf
+*.bin
+*.log
+
+# Build folders
+build/
+Debug/
+Release/
+
+# VS Code
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db

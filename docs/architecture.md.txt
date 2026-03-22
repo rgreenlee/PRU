@@ -1,0 +1,25 @@
+# Architecture
+
+## Version 1
+
+This first PRU project is intentionally simple.
+
+### PRU side
+- generates a deterministic square wave
+- reads configuration values from shared memory
+- toggles output state at a fixed interval
+
+### ARM/Linux side
+- initializes shared configuration
+- starts/stops behavior later
+- eventually will control frequency/duty settings
+
+## Long-term direction
+
+This same structure will later expand into:
+- PWM generation
+- motor control timing
+- encoder capture
+- fixed-rate sampling
+- PRU-driven data buffering
+- ARM-side FFT analysis
