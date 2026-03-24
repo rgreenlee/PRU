@@ -1,4 +1,7 @@
 #include "prucontroller.h"
+#include <QFileDevice>
+#include <cstring>
+#include <errno.h>
 
 #include <QDebug>
 #include <QtGlobal>
@@ -29,24 +32,8 @@ PruController::PruController(QObject *parent)
       m_mapBase(nullptr),
       m_shared(nullptr)
 {
-    if (mapSharedRam()) {
-        if (m_shared->magic != PRU_SHARED_MAGIC) {
-            m_shared->magic      = PRU_SHARED_MAGIC;
-            m_shared->enable     = 0;
-            m_shared->mode       = PRU_MODE_PWM;
-            m_shared->out_mask   = (1u << 15);
-            m_shared->high_count = 10000;
-            m_shared->low_count  = 10000;
-            m_shared->reserved0  = 0;
-            m_shared->reserved1  = 0;
-        }
-        setStatus("Shared RAM mapped");
-    } else {
-        setStatus("Failed to map PRU shared RAM. Run as root.");
-    }
-
     refreshState();
-    applySettings();
+    setStatus("Ready");
 }
 
 PruController::~PruController()
@@ -110,9 +97,26 @@ void PruController::setDutyPercent(int value)
     emit dutyPercentChanged();
     updateSharedStruct();
 }
-
 void PruController::applySettings()
 {
+    if (!m_shared) {
+        if (!mapSharedRam()) {
+            setStatus("Failed to map shared RAM. Need elevated permissions.");
+            return;
+        }
+
+        if (m_shared->magic != PRU_SHARED_MAGIC) {
+            m_shared->magic      = PRU_SHARED_MAGIC;
+            m_shared->enable     = 0;
+            m_shared->mode       = PRU_MODE_PWM;
+            m_shared->out_mask   = (1u << 15);
+            m_shared->high_count = 10000;
+            m_shared->low_count  = 10000;
+            m_shared->reserved0  = 0;
+            m_shared->reserved1  = 0;
+        }
+    }
+
     updateSharedStruct();
     setStatus(QString("Applied: %1 Hz, %2% duty")
               .arg(m_frequencyHz)
@@ -121,27 +125,47 @@ void PruController::applySettings()
 
 void PruController::startFirmware()
 {
-    if (!mapSharedRam()) {
-        setStatus("Cannot map shared RAM");
+    if (!writeSysfs(REMOTEPROC_STATE, "stop")) {
+        setStatus("Failed to stop PRU before reload. Need elevated permissions?");
         return;
     }
 
-    updateSharedStruct();
-
-    writeSysfs(REMOTEPROC_STATE, "stop");
-    writeSysfs(REMOTEPROC_FW, FIRMWARE_NAME);
-
-    if (writeSysfs(REMOTEPROC_STATE, "start")) {
-        m_running = true;
-        emit runningChanged();
-        setStatus("PRU firmware started");
-    } else {
-        setStatus("Failed to start PRU firmware");
+    if (!writeSysfs(REMOTEPROC_FW, FIRMWARE_NAME)) {
+        setStatus("Failed to write firmware name. Need elevated permissions?");
+        return;
     }
+
+    if (!writeSysfs(REMOTEPROC_STATE, "start")) {
+        setStatus("Failed to start PRU firmware. Need elevated permissions?");
+        return;
+    }
+
+    if (!mapSharedRam()) {
+        setStatus("Firmware started, but failed to map shared RAM.");
+        refreshState();
+        return;
+    }
+
+    if (m_shared->magic != PRU_SHARED_MAGIC) {
+        m_shared->magic      = PRU_SHARED_MAGIC;
+        m_shared->enable     = 0;
+        m_shared->mode       = PRU_MODE_PWM;
+        m_shared->out_mask   = (1u << 15);
+        m_shared->high_count = 10000;
+        m_shared->low_count  = 10000;
+        m_shared->reserved0  = 0;
+        m_shared->reserved1  = 0;
+    }
+
+    updateSharedStruct();
+    refreshState();
+    setStatus("PRU firmware started");
 }
 
 void PruController::stopFirmware()
 {
+    unmapSharedRam();
+
     if (writeSysfs(REMOTEPROC_STATE, "stop")) {
         m_running = false;
         emit runningChanged();
@@ -214,10 +238,16 @@ bool PruController::writeSysfs(const QString &path, const QString &value)
 {
     QFile f(path);
     if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        qWarning() << "writeSysfs failed:" << path << f.errorString();
         return false;
     }
+
     const QByteArray bytes = value.toUtf8();
     const bool ok = (f.write(bytes) == bytes.size());
+    if (!ok) {
+        qWarning() << "writeSysfs write failed:" << path << f.errorString();
+    }
+
     f.close();
     return ok;
 }
@@ -226,8 +256,10 @@ QString PruController::readSysfs(const QString &path) const
 {
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly)) {
+        qWarning() << "readSysfs failed:" << path << f.errorString();
         return QString();
     }
+
     const QString value = QString::fromUtf8(f.readAll());
     f.close();
     return value;
