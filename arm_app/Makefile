@@ -1,14 +1,36 @@
-CXX=g++
-CXXFLAGS=-std=c++17 -Wall -Wextra -O2
+TARGET=pru_pwm_control
+OUT=$(TARGET).out
+OBJ=$(TARGET).obj
 
-TARGET=pru_arm_test
-SRCS=main.cpp pructrl.cpp
-OBJS=$(SRCS:.cpp=.o)
+PRU_CGT=/usr/share/ti/cgt-pru
 
-all: $(TARGET)
+CC=$(PRU_CGT)/bin/clpru
+LD=$(PRU_CGT)/bin/clpru
 
-$(TARGET): $(OBJS)
-	$(CXX) $(CXXFLAGS) -o $(TARGET) $(OBJS)
+CFLAGS=--include_path=. \
+       --include_path=$(PRU_CGT)/include \
+       --hardware_mac=on \
+       --endian=little \
+       -v3 \
+       --display_error_number \
+       --diag_wrap=off \
+       -O2
+
+LDFLAGS=--run_linker \
+        --warn_sections \
+        --stack_size=0x100 \
+        --heap_size=0x100 \
+        --library=$(PRU_CGT)/lib/rtspruv3_le.lib \
+        -i$(PRU_CGT)/lib \
+        $(PRU_CGT)/lib/lnk.cmd
+
+all: $(OUT)
+
+$(OUT): $(OBJ)
+	$(LD) $(CFLAGS) $(LDFLAGS) -o $@ $<
+
+$(OBJ): $(TARGET).c
+	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(TARGET)
+	rm -f *.obj *.out *.map *.asm

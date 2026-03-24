@@ -1,19 +1,21 @@
-#include "pructrl.h"
-#include <iostream>
+#include <QGuiApplication>
+#include <QQmlApplicationEngine>
+#include <QQmlContext>
 
-int main()
+#include "prucontroller.h"
+
+int main(int argc, char *argv[])
 {
-    std::cout << "PRU ARM-side control stub\n";
+    QGuiApplication app(argc, argv);
 
-    PruCtrl ctrl;
-    ctrl.setEnable(true);
-    ctrl.setHalfPeriodCycles(500000);
-    ctrl.setGpioMask(0x1);
+    qmlRegisterType<PruController>("PRU", 1, 0, "PruController");
 
-    ctrl.printConfig();
+    QQmlApplicationEngine engine;
+    engine.load(QUrl(QStringLiteral("qrc:/main.qml")));
 
-    std::cout << "\nNext step:\n";
-    std::cout << "  Connect this config to real PRU shared memory on the BBB.\n";
+    if (engine.rootObjects().isEmpty()) {
+        return -1;
+    }
 
-    return 0;
+    return app.exec();
 }
