@@ -277,17 +277,31 @@ void PruController::setStatus(const QString &text)
 void PruController::updateSharedStruct()
 {
     if (!m_shared) {
+        qDebug() << "updateSharedStruct: m_shared is null";
         return;
     }
 
-    const double periodCycles = PRU_CLOCK_HZ / static_cast<double>(m_frequencyHz);
+    constexpr double DELAY_LOOP_CYCLES = 2.0;
+    const double periodCounts =
+        (PRU_CLOCK_HZ / static_cast<double>(m_frequencyHz)) / DELAY_LOOP_CYCLES;
+
+    std::uint32_t totalCount =
+        static_cast<std::uint32_t>(std::llround(periodCounts));
+    if (totalCount < 2u) {
+        totalCount = 2u;
+    }
+
     std::uint32_t highCount = static_cast<std::uint32_t>(
-        std::llround(periodCycles * (static_cast<double>(m_dutyPercent) / 100.0)));
+        std::llround(static_cast<double>(totalCount) *
+                     (static_cast<double>(m_dutyPercent) / 100.0)));
     if (highCount < 1u) {
         highCount = 1u;
     }
+    if (highCount >= totalCount) {
+        highCount = totalCount - 1u;
+    }
 
-    std::uint32_t lowCount = static_cast<std::uint32_t>(std::llround(periodCycles)) - highCount;
+    std::uint32_t lowCount = totalCount - highCount;
     if (lowCount < 1u) {
         lowCount = 1u;
     }
@@ -298,4 +312,12 @@ void PruController::updateSharedStruct()
     m_shared->out_mask   = (1u << 15);
     m_shared->high_count = highCount;
     m_shared->low_count  = lowCount;
+
+    qDebug() << "WRITE:"
+             << "enable=" << m_shared->enable
+             << "freq=" << m_frequencyHz
+             << "duty=" << m_dutyPercent
+             << "total=" << totalCount
+             << "high=" << m_shared->high_count
+             << "low=" << m_shared->low_count;
 }
